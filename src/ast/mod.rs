@@ -1,4 +1,4 @@
-use crate::Identifier;
+use crate::{function::FunctionDescriptor, Identifier};
 
 pub mod untyped;
 
@@ -7,7 +7,14 @@ enum NodeKind<Node> {
     Empty,
     Number(f64),
     Atom(Identifier),
-    Call { function: Box<Node>, arg: Box<Node> },
+    Call {
+        function: Box<Node>,
+        arg: Box<Node>,
+    },
+    Define {
+        function: FunctionDescriptor,
+        body: Box<Node>,
+    },
 }
 
 struct AST<Node> {

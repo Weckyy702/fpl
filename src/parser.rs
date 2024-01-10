@@ -1,7 +1,12 @@
 use std::mem;
 use thiserror::Error;
 
-use crate::{ast::untyped::ASTNode, token::Token};
+use crate::{
+    ast::untyped::ASTNode,
+    function::{FunctionDescriptor, PatternElement},
+    identifier::Identifier,
+    token::Token,
+};
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -9,10 +14,8 @@ pub enum Error {
     UnexpectedEnd,
     #[error("Unmatched parantheses")]
     UnmatchedParen,
-    #[error("Unexpected token {0:?}")]
+    #[error("Unexpected token '{0}'")]
     UnexpectedToken(Token),
-    #[error("Unclosed paranthesis")]
-    UnclosedParen,
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -71,7 +74,7 @@ where
                 self.consume()?;
                 let node = self.parse_toplevel_expression()?;
                 let Ok(T::RParen) = self.consume() else {
-                    return Err(Error::UnclosedParen);
+                    return Err(Error::UnmatchedParen);
                 };
                 Ok(node)
             }
@@ -80,21 +83,55 @@ where
         }
     }
 
+    fn parse_call(&mut self, name: Identifier) -> Result<ASTNode> {
+        let mut node = ASTNode::atom(name);
+        loop {
+            let arg = self.parse_sublevel_expression()?;
+            if arg.is_empty() {
+                break;
+            }
+            node = ASTNode::call(node, arg);
+        }
+        Ok(node)
+    }
+
+    fn parse_function_definition(&mut self, name: Identifier) -> Result<ASTNode> {
+        use Token as T;
+
+        let mut function = FunctionDescriptor::new(name);
+
+        loop {
+            match self.consume()? {
+                T::Identifier(name) => function.add_arg(PatternElement::ident(name)),
+                T::ThinArrow => break,
+                t => return Err(Error::UnexpectedToken(t)),
+            }
+        }
+
+        let body = self.parse_toplevel_expression()?;
+
+        Ok(ASTNode::define_function(function, body))
+    }
+
+    fn parse_function_declaration(&mut self, name: Identifier) -> Result<ASTNode> {
+        todo!("Function declaration")
+    }
+
     fn parse_toplevel_expression(&mut self) -> Result<ASTNode> {
         use Token as T;
 
         match self.consume()? {
-            T::Identifier(name) => {
-                let mut node = ASTNode::atom(name);
-                loop {
-                    let arg = self.parse_sublevel_expression()?;
-                    if arg.is_empty() {
-                        break;
+            T::Identifier(name) => match self.peek_or_eof()? {
+                T::Colon => {
+                    self.consume().expect("Can consume");
+                    if let T::Colon = self.peek_or_eof()? {
+                        self.consume().expect("Can consume");
+                        return self.parse_function_declaration(name);
                     }
-                    node = ASTNode::call(node, arg);
+                    self.parse_function_definition(name)
                 }
-                Ok(node)
-            }
+                _ => self.parse_call(name),
+            },
             t => Err(Error::UnexpectedToken(t)),
         }
     }
